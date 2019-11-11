@@ -197,7 +197,8 @@ int fast_prime(long int ev_set[], int S, int C, int D)
         {
             for (k = 0; k < D; k++)
             {
-                bas = *((long int *)(ev_set[i + k]));
+                //bas = *((long int *)(ev_set[i + k]));
+                mem_access((long int *)(ev_set[i + k]));
             }
         }
     }
@@ -246,8 +247,8 @@ int refresh_step(long int *pos_data) //Load from second element
         " mfence \n"
         " rdtsc \n"
         " movl %%eax, %%esi \n"
-        " movq 16(%1), %%rdi \n"
         " lfence \n"
+        " movq 16(%1), %%rdi \n"
         " movq (%%rdi), %%rdi \n"
         " movq (%%rdi), %%rdi \n"
         " movq (%%rdi), %%rdi \n"
@@ -311,12 +312,10 @@ int refresh_step(long int *pos_data) //Load from second element
 /*Functions for eviction set generation*/
 
 /*Generates an array of candidates starting from the base address of the memory region reserved*/
-void generate_candidates_array(long int *base_address, long int candidates_set[], int num_candidates)
+void generate_candidates_array(long int *base_address, long int candidates_set[], int num_candidates, int tar_set)
 {
     int i;
     long int original_value = (long int)base_address;
-    //Avoid set 0 (noisy);
-    int tar_set = 30 + (rand() % (SETS_PER_SLICE / 2));
     original_value += (tar_set << BITS_LINE);
     for (i = 0; i < num_candidates; ++i)
     {
@@ -661,21 +660,28 @@ void get_elements_set_rr(long int eviction_set_rr[CACHE_SET_SIZE], long int new_
     }
 }
 
-void prepare_sets(long int eviction_set_rr[CACHE_SET_SIZE], long int *conflicting_address)
+void prepare_sets(long int eviction_set_rr[CACHE_SET_SIZE], long int *conflicting_address, int time_prime_limit)
 {
     int i;
     flush_data((long *)eviction_set_rr[0]); //remove target
     lfence();
-    long int *prime_address = (long int *)eviction_set_rr[1]; //first one is the target
+    long int *prime_address = (long int *)eviction_set_rr[1]; //Note that first one is the target
     /*Ensure data is in the cache*/
-    probe_one_set(prime_address);
+    i = 0;
+    int t = probe_one_set(prime_address);
     lfence();
-    probe_one_set(prime_address);
-    lfence();
-    probe_one_set(prime_address);
+    while (t > time_prime_limit)
+    {
+        t = probe_one_set(prime_address);
+        i++;
+        if (i > 10)
+        {
+            break;
+        }
+    }
     lfence();
     /*Remove data from the cache*/
-    for (i = 0; i < CACHE_SET_SIZE; i++)
+    for (i = 1; i < CACHE_SET_SIZE; i++)
     {
         flush_data((long *)eviction_set_rr[i]);
         lfence();
@@ -689,4 +695,68 @@ void prepare_sets(long int eviction_set_rr[CACHE_SET_SIZE], long int *conflictin
         mem_access((long int *)eviction_set_rr[i]);
         lfence();
     }
+}
+
+void increase_eviction(long int candidates_set[], int num_candidates, long int ev_set[CACHE_SET_SIZE * CACHE_SLICES], long int new_ev_set[CACHE_SET_SIZE * 2], int slice, int time_limit)
+{
+    int i, j, k;
+    for (i = 0; i < CACHE_SET_SIZE; ++i)
+    {
+        new_ev_set[i] = ev_set[slice * CACHE_SET_SIZE + i];
+    }
+#if SLICE_HASH_AVAILABLE
+    j = 0;
+    for (i = 0; i < num_candidates; ++i)
+    {
+        if (!(check_inside(candidates_set[i], ev_set, CACHE_SET_SIZE * CACHE_SLICES)))
+        {
+            uintptr_t phys_addr;
+            int res = virt_to_phys(&phys_addr, getpid(), (uintptr_t)candidates_set[i]);
+            if (res < 0)
+            {
+                printf("Error \n");
+                return -1;
+            }
+            int s = addr2slice_linear(phys_addr, CACHE_SLICES);
+            if (s == slice)
+            {
+                new_ev_set[CACHE_SET_SIZE + j] = candidates_set[i];
+                j++;
+                if (j == CACHE_SET_SIZE)
+                    break;
+            }
+        }
+    }
+#else
+    long int *prime_address = (long int *)ev_set[slice * CACHE_SET_SIZE];
+    j = 0;
+    int cont;
+    for (i = 0; i < num_candidates; ++i)
+    {
+        if (!(check_inside(candidates_set[i], ev_set, CACHE_SET_SIZE * CACHE_SLICES)))
+        {
+            cont = 0;
+            for (k = 0; k < 1000; ++k)
+            {
+                int t1 = access_timed((long int *)candidates_set[i]);
+                lfence();
+                probe_one_set(prime_address);
+                lfence();
+                t1 = access_timed((long int *)candidates_set[i]);
+                lfence();
+                if (t1 > time_limit)
+                {
+                    cont++;
+                }
+            }
+            if (cont > 800)
+            {
+                new_ev_set[CACHE_SET_SIZE + j] = candidates_set[i];
+                j++;
+                if (j == CACHE_SET_SIZE)
+                    break;
+            }
+        }
+    }
+#endif
 }

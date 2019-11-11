@@ -12,7 +12,7 @@
 #define lfence()  __asm__ volatile("lfence;");
 
 /*Set generation functions*/
-void generate_candidates_array(long int *base_address, long int candidates_set[], int num_candidates);
+void generate_candidates_array(long int *base_address, long int candidates_set[], int num_candidates,int tar_set);
 void flush_desired_set(long int address_array[], int len);
 int check_inside(long int dato,long int array_datos[],int array_length);
 void randomize_set(long int array[],int len);
@@ -25,7 +25,8 @@ void generate_new_eviction_set(int set, long int invariant_part[CACHE_SET_SIZE *
 void write_linked_list(long int set_desired[CACHE_SET_SIZE * CACHE_SLICES]);
 void profile_address(long int invariant_part[CACHE_SET_SIZE * CACHE_SLICES], long int new_ev_set[CACHE_SET_SIZE * CACHE_SLICES],long int *target_address,int *set, int *slice);
 void get_elements_set_rr(long int eviction_set_min[CACHE_SET_SIZE], long int new_ev_set[CACHE_SET_SIZE * CACHE_SLICES], long int *target_address, int slice);
-void prepare_sets(long int eviction_set_rr[CACHE_SET_SIZE], long int *conflicting_address);
+void prepare_sets(long int eviction_set_rr[CACHE_SET_SIZE], long int *conflicting_address,int time_prime_limit); //ONLY FOR R+R
+void increase_eviction(long int candidates_set[], int num_candidates, long int ev_set[CACHE_SET_SIZE * CACHE_SLICES], long int new_ev_set[CACHE_SET_SIZE * 2], int slice, int time_limit);
 
 /*Useful functions for attackss*/
 unsigned long int timestamp(void);
