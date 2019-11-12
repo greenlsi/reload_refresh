@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +11,7 @@
 #include "cache_utils.h" /*Cache manipulation functions*/
 
 /*For huge pages*/
-#define FILE_NAME "/mnt/huge/filehuge"
+#define FILE_NAME "/mnt/hugetlbfs/filehuge"
 #define PROTECTION (PROT_READ | PROT_WRITE)
 /* Only ia64 requires this */
 #ifdef __ia64__
@@ -74,7 +73,7 @@ int main(int argc, char **argv)
         }
         target_address = (long int *)get_address_table(target_pos);
         //target_address = (long int *)get_address_quixote(target_pos);
-        printf("Target address %lx %i %i\n", (long int)target_address,wait_time,max_run_time);
+        printf("Target address %lx %i %i\n", (long int)target_address, wait_time, max_run_time);
     }
     if (strcmp(argv[2], "-fr") == 0)
     {
@@ -122,19 +121,14 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[2], "-pp"))
     {
         printf("TEST PRIME+PROBE\n");
-        snprintf(file_name, 40, "test_pp_%d_%d.txt", target_pos, wait_time);
-        out_fd = fopen(file_name, "w");
-        if (out_fd == NULL)
-            fprintf(stderr, "Unable to open file\n");
         /*Reserve huge pages*/
-
+        /*Allocate memory using hugepages*/
         fd = open(FILE_NAME, O_CREAT | O_RDWR, 0755);
         if (fd < 0)
         {
             perror("Open failed");
             exit(1);
         }
-
         unsigned long reserved_size = RES_MEM;
         base_address = mmap(ADDR, reserved_size, PROTECTION, MAP_SHARED, fd, 0);
         if (base_address == NULL)
@@ -148,7 +142,20 @@ int main(int argc, char **argv)
             unlink(FILE_NAME);
             exit(1);
         }
+        long int mem;
+        for (mem = 0; mem < ((reserved_size) / 8); ++mem)
+        {
+            *(base_address + mem) = mem;
+        }
+
         printf("Reserved hugepages at %lx \n", (long int)base_address);
+
+        /*Output file*/
+        snprintf(file_name, 40, "test_pp_%d_%d.txt", target_pos, wait_time);
+        out_fd = fopen(file_name, "w");
+        if (out_fd == NULL)
+            fprintf(stderr, "Unable to open file\n");
+
         /*Set generation*/
         int tar_set = 30 + (rand() % (SETS_PER_SLICE / 2)); //Avoid set 0 (noisy);
         generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES, tar_set);
