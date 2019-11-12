@@ -3,12 +3,11 @@
 #include <math.h>
 #include <stdint.h> 
 #include <stdlib.h> 
-#include <stdio.h>  
-#include <unistd.h> 
+#include <stdio.h>   
 #include <stdbool.h>
 #include <signal.h>
 
-#define PAGE_SIZE sysconf(_SC_PAGESIZE)
+#define PAGE_SIZE 4096
 #define MASC_PAGE (PAGE_SIZE - 1)
 #define BITS_PAGE (int)log2(PAGE_SIZE)
 

@@ -430,6 +430,7 @@ int create_filtered_set(long int filtered_set[], long int original_set[], int le
             number_of_el_slice[slice_id]++;
             cont_candidates++;
         }
+	//printf("Cand %i %i %lx %lx\n",cont_candidates,slice_id,phys_addr,original_set[i]);
         if (cont_candidates == CACHE_SET_SIZE * CACHE_SLICES)
             break;
     }

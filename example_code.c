@@ -5,7 +5,6 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sched.h>
-#include <unistd.h>
 #include <sys/wait.h>
 #include <time.h>
 
@@ -13,7 +12,7 @@
 #include "cache_utils.h" /*Cache manipulation functions*/
 
 /*For huge pages*/
-#define FILE_NAME "/mnt/hugetlbfs/filehuge"
+#define FILE_NAME "/mnt/huge/filehuge"
 #define PROTECTION (PROT_READ | PROT_WRITE)
 /* Only ia64 requires this */
 #ifdef __ia64__
@@ -51,7 +50,7 @@ int wait_time;
 int max_run_time;
 int S, C, D;
 
-struct timespec request,remain;
+struct timespec request, remain;
 
 int main(int argc, char **argv)
 {
@@ -67,7 +66,7 @@ int main(int argc, char **argv)
     {
         target_pos = atoi(argv[1]);
         wait_time = atoi(argv[3]);
-	max_run_time = atoi(argv[4]);
+        max_run_time = atoi(argv[4]);
         if (!target_pos)
         {
             printf("Error with the target address \n");
@@ -75,12 +74,12 @@ int main(int argc, char **argv)
         }
         target_address = (long int *)get_address_table(target_pos);
         //target_address = (long int *)get_address_quixote(target_pos);
-        printf("Target address %lx \n",(long int) target_address);
+        printf("Target address %lx %i %i\n", (long int)target_address,wait_time,max_run_time);
     }
     if (strcmp(argv[2], "-fr") == 0)
     {
         printf("TEST FLUSH+RELOAD\n");
-        snprintf(file_name, 40, "test_fr_%d_%d.txt",target_pos, wait_time);
+        snprintf(file_name, 40, "test_fr_%d_%d.txt", target_pos, wait_time);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -101,10 +100,10 @@ int main(int argc, char **argv)
                 cont++;
             }
         }
-	clock_gettime(CLOCK_MONOTONIC, &request);
+        clock_gettime(CLOCK_MONOTONIC, &request);
         clock_gettime(CLOCK_MONOTONIC, &remain);
         /*Carry the attack*/
-        while (remain.tv_sec<(request.tv_sec+max_run_time+1))
+        while (remain.tv_sec < (request.tv_sec + max_run_time + 1))
         {
             t = access_timed_flush(target_address);
             //t = access_timed_full_flush(target_address);
@@ -115,7 +114,7 @@ int main(int argc, char **argv)
                 ;
 #endif
             fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
-	    clock_gettime(CLOCK_MONOTONIC, &remain);
+            clock_gettime(CLOCK_MONOTONIC, &remain);
         }
         fclose(out_fd);
         return 0;
@@ -123,7 +122,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[2], "-pp"))
     {
         printf("TEST PRIME+PROBE\n");
-        snprintf(file_name, 40, "test_pp_%d_%d.txt",target_pos, wait_time);
+        snprintf(file_name, 40, "test_pp_%d_%d.txt", target_pos, wait_time);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -149,7 +148,7 @@ int main(int argc, char **argv)
             unlink(FILE_NAME);
             exit(1);
         }
-
+        printf("Reserved hugepages at %lx \n", (long int)base_address);
         /*Set generation*/
         int tar_set = 30 + (rand() % (SETS_PER_SLICE / 2)); //Avoid set 0 (noisy);
         generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES, tar_set);
@@ -166,7 +165,10 @@ int main(int argc, char **argv)
         unsigned long tim = timestamp();
         int t;
         ///NO PROFILE FOR P+P
-        while (1)
+        clock_gettime(CLOCK_MONOTONIC, &request);
+        clock_gettime(CLOCK_MONOTONIC, &remain);
+        /*Carry the attack*/
+        while (remain.tv_sec < (request.tv_sec + max_run_time + 1))
         {
             t = probe_one_set(prime_address);
             mfence();
@@ -176,6 +178,7 @@ int main(int argc, char **argv)
                 ;
 #endif
             fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
+            clock_gettime(CLOCK_MONOTONIC, &remain);
         }
         fclose(out_fd);
         /*Release huge pages*/
@@ -194,7 +197,7 @@ int main(int argc, char **argv)
         C = atoi(argv[6]);
         D = atoi(argv[7]);
         printf("TEST FAST PRIME+PROBE (Rowhammer.js)\n");
-        snprintf(file_name, 40, "test_fpp_%d_%d.txt",target_pos, wait_time);
+        snprintf(file_name, 40, "test_fpp_%d_%d.txt", target_pos, wait_time);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -237,7 +240,10 @@ int main(int argc, char **argv)
         unsigned long tim = timestamp();
         int t;
         ///NO PROFILE FOR P+P
-        while (1)
+        clock_gettime(CLOCK_MONOTONIC, &request);
+        clock_gettime(CLOCK_MONOTONIC, &remain);
+        /*Carry the attack*/
+        while (remain.tv_sec < (request.tv_sec + max_run_time + 1))
         {
             t = fast_prime(long_eviction_set, S, C, D);
             tim = timestamp();
@@ -246,6 +252,7 @@ int main(int argc, char **argv)
                 ;
 #endif
             fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
+            clock_gettime(CLOCK_MONOTONIC, &remain);
         }
         fclose(out_fd);
         /*Release huge pages*/
@@ -256,7 +263,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[2], "-rr"))
     {
         printf("TEST RELOAD+REFRESH\n");
-        snprintf(file_name, 40, "test_rr_%d_%d.txt",target_pos,wait_time);
+        snprintf(file_name, 40, "test_rr_%d_%d.txt", target_pos, wait_time);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -329,8 +336,10 @@ int main(int argc, char **argv)
 
         /*Prepare the sets for the attack*/
         prepare_sets(elements_set, conflict_address, TIME_PRIME);
+        clock_gettime(CLOCK_MONOTONIC, &request);
+        clock_gettime(CLOCK_MONOTONIC, &remain);
         /*Carry the attack*/
-        while (1)
+        while (remain.tv_sec < (request.tv_sec + max_run_time + 1))
         {
             cont++;
             t = reload_step(target_address, conflict_address, first_el);
@@ -348,6 +357,7 @@ int main(int argc, char **argv)
             }
 #endif
             fprintf(out_fd, "%i %i %lu\n", t, t1, tim);
+            clock_gettime(CLOCK_MONOTONIC, &remain);
         }
         fclose(out_fd);
         /*Release huge pages*/
