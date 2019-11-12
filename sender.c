@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <time.h>
 
-#define NUM_SAMPLES 100000
+#define NUM_SAMPLES 50000
 
 FILE *fd;
 long int collected_samples[2][NUM_SAMPLES];
@@ -19,6 +19,38 @@ unsigned long int timestamp(void)
     result = top;
     result = (result << 32) & 0xFFFFFFFF00000000UL;
     return (result | bottom);
+}
+
+/*Get the value of a memory location*/
+long int mem_access(long int *v)
+{
+    long int rv = 0;
+    asm volatile(
+        "movq (%1), %0"
+        : "+r"(rv)
+        : "r"(v)
+        :);
+    return rv;
+}
+
+/*Measure read time*/
+int access_timed(long int *pos_data)
+{
+    volatile unsigned int time;
+    asm __volatile__(
+        //" mfence \n"
+        //" lfence \n"
+        " rdtsc \n"
+        " lfence \n"
+        " movl %%eax, %%esi \n"
+        " movl (%1), %%eax \n"
+        " lfence \n"
+        " rdtsc \n"
+        " subl %%esi, %%eax \n"
+        : "=a"(time)
+        : "c"(pos_data)
+        : "%esi", "%edx");
+    return time;
 }
 
 int main()
@@ -52,10 +84,11 @@ int main()
     if (fd == NULL) fprintf(stderr,"Unable to open file\n");
     for (i = 0; i < NUM_SAMPLES ; i++)
     {
-      //start = clock(); /* Get time*/
       nanosleep(&request, &remain);
-      //end = clock();
-      collected_samples[0][i]=(long int)(*target_address);
+      //collected_samples[0][i] = mem_access(target_address);
+      collected_samples[0][i] = access_timed(target_address);
+      access_timed(target_address+1);
+      access_timed(target_address+2);
       collected_samples[1][i] = timestamp();
     }
     for (i = 0; i < NUM_SAMPLES ; i++)

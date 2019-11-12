@@ -1,7 +1,7 @@
 #include "common.h" /* virtual to physical page conversion */
 #include "cache_details.h" /*Cache architecture details*/
 
-#define SLICE_HASH_AVAILABLE 0
+#define SLICE_HASH_AVAILABLE 1
 #define SLICE_MASK_0 0x1b5f575440UL
 #define SLICE_MASK_1 0x2eb5faa880UL
 #define SLICE_MASK_2 0x3cccc93100UL
@@ -34,7 +34,9 @@ int parity(uint64_t v);
 int addr2slice_linear(uintptr_t addr, int slices);
 long int mem_access(long int *v);
 int access_timed(long int *pos_data);
+int access_timed_full(long int *pos_data);
 int access_timed_flush(long int *pos_data);
+int access_timed_full_flush(long int *pos_data);
 void flush_data(long int *pos_data);
 int flush_timed (long int *pos_data);
 int probe_one_set(long int *pos_data);

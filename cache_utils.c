@@ -48,8 +48,8 @@ int access_timed(long int *pos_data)
 {
     volatile unsigned int time;
     asm __volatile__(
-        " mfence \n"
-        " lfence \n"
+        //" mfence \n"
+        //" lfence \n"
         " rdtsc \n"
         " lfence \n"
         " movl %%eax, %%esi \n"
@@ -63,23 +63,50 @@ int access_timed(long int *pos_data)
     return time;
 }
 
+/*Measure read time*/
+int access_timed_full(long int *pos_data)
+{
+    volatile unsigned int time;
+    unsigned long int t1=timestamp();
+    lfence();
+    mem_access(pos_data);
+    lfence();
+    time=(int)(timestamp()-t1);
+    return time;
+}
+
 /*Measure read time and flush data afterwards*/
 int access_timed_flush(long int *pos_data)
 {
     volatile unsigned int time;
     asm __volatile__(
         " mfence \n"
+        " lfence \n"
         " rdtsc \n"
         " lfence \n"
         " movl %%eax, %%esi \n"
         " movl (%1), %%eax \n"
         " lfence \n"
+        //" mfence \n"
         " rdtsc \n"
         " subl %%esi, %%eax \n"
         " clflush 0(%1) \n"
         : "=a"(time)
         : "c"(pos_data)
         : "%esi", "%edx");
+    return time;
+}
+
+/*Measure read time and flush data afterwards*/
+int access_timed_full_flush(long int *pos_data)
+{
+    volatile unsigned int time;
+    unsigned long int t1=timestamp();
+    lfence();
+    mem_access(pos_data);
+    lfence();
+    time=(int)(timestamp()-t1);
+    flush_data(pos_data);
     return time;
 }
 
@@ -207,6 +234,7 @@ int fast_prime(long int ev_set[], int S, int C, int D)
 }
 
 /*The reload step does not depend on the size of the cache set (Number of ways)*/
+/*Time can be measured at different instants*/
 int reload_step(long int *pos_data, long int *second_data, long int *first_el)
 {
     volatile unsigned int time;
@@ -555,7 +583,7 @@ void generate_new_eviction_set(int set, long int invariant_part[CACHE_SET_SIZE *
         if (res < 0)
         {
             printf("Error \n");
-            return -1;
+            return;
         }
         slice_id = addr2slice_linear(phys_addr, CACHE_SLICES);
         new_ev_set[slice_id * CACHE_SLICES + i % CACHE_SET_SIZE] = dir_mem;
@@ -608,7 +636,7 @@ void profile_address(long int invariant_part[CACHE_SET_SIZE * CACHE_SLICES], lon
     if (res < 0)
     {
         printf("Error \n");
-        return -1;
+        return;
     }
     (*slice) = addr2slice_linear(phys_addr, CACHE_SLICES);
     *set = (int)((phys_addr >> BITS_LINE) & (MASC_BITS_SET));
@@ -715,7 +743,7 @@ void increase_eviction(long int candidates_set[], int num_candidates, long int e
             if (res < 0)
             {
                 printf("Error \n");
-                return -1;
+                return;
             }
             int s = addr2slice_linear(phys_addr, CACHE_SLICES);
             if (s == slice)
