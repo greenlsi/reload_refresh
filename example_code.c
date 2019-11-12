@@ -75,7 +75,7 @@ int main(int argc, char **argv)
         }
         target_address = (long int *)get_address_table(target_pos);
         //target_address = (long int *)get_address_quixote(target_pos);
-        printf("Target address %lx \n", target_address);
+        printf("Target address %lx \n",(long int) target_address);
     }
     if (strcmp(argv[2], "-fr") == 0)
     {

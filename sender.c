@@ -69,7 +69,7 @@ int main()
   scanf ("%d",&target);
   //quixote = (char *)get_address_quixote(target);
   target_address = (long int *)get_address_table(target);
-  printf("Target address %lx \n",target_address);
+  printf("Target address %lx \n",(long int)target_address);
   //printf("%c \n", *quixote);
   while (1)
   {
