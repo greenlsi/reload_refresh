@@ -2,10 +2,13 @@ LIB_PATH = $(shell pwd)
 CC=gcc
 CFLAGS=-Werror
 
-all: libT.so example_code sender
+all: libT.so example_code sender sender_sync example_code_sync
 
 example_code: LDLIBS= -lm -L$(LIB_PATH) -lT
 example_code: common.o cache_utils.o example_code.o
+
+example_code_sync: LDLIBS= -lm -L$(LIB_PATH) -lT
+example_code_sync: common.o cache_utils.o example_code_sync.o
 
 cache_utils.o: common.o
 
@@ -22,6 +25,12 @@ sender.o: sender.c
 
 sender: sender.o libT.so
 	gcc -o $@ sender.o -L$(LIB_PATH) -lT
+
+sender_sync.o: sender_sync.c
+	gcc -c -o $@ $^
+
+sender_sync: sender_sync.o libT.so
+	gcc -o $@ sender_sync.o -L$(LIB_PATH) -lT
 
 clean:
 	$(RM) *.o *~ *.so

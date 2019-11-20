@@ -67,11 +67,11 @@ int access_timed(long int *pos_data)
 int access_timed_full(long int *pos_data)
 {
     volatile unsigned int time;
-    unsigned long int t1=timestamp();
+    unsigned long int t1 = timestamp();
     lfence();
     mem_access(pos_data);
     lfence();
-    time=(int)(timestamp()-t1);
+    time = (int)(timestamp() - t1);
     return time;
 }
 
@@ -101,11 +101,11 @@ int access_timed_flush(long int *pos_data)
 int access_timed_full_flush(long int *pos_data)
 {
     volatile unsigned int time;
-    unsigned long int t1=timestamp();
+    unsigned long int t1 = timestamp();
     lfence();
     mem_access(pos_data);
     lfence();
-    time=(int)(timestamp()-t1);
+    time = (int)(timestamp() - t1);
     flush_data(pos_data);
     return time;
 }
@@ -235,7 +235,7 @@ int fast_prime(long int ev_set[], int S, int C, int D)
 
 /*The reload step does not depend on the size of the cache set (Number of ways)*/
 /*Time can be measured at different instants*/
-int reload_step(long int *pos_data, long int *second_data, long int *first_el)
+int reload_step(long int *pos_data, long int *conf_data, long int *first_el)
 {
     volatile unsigned int time;
     asm __volatile__(
@@ -243,27 +243,33 @@ int reload_step(long int *pos_data, long int *second_data, long int *first_el)
         " lfence \n"
         " rdtsc \n"
         " movl %%eax, %%esi \n"
-        " movl 0(%2), %%eax \n" //Force a miss
+        " movl 0(%2), %%ebx \n" //Force a miss
         " mfence \n"
         " clflush 0(%2) \n" //Flush that data
-        " mfence \n"
+        //" mfence \n"
+        " lfence \n"
         //" rdtsc \n"
         //" movl %%eax, %%esi \n"
-        " movl (%1), %%eax \n" //Read Target
+        //" rdtsc \n"
+        //" movl %%eax, %%esi \n"
+        " movl (%1), %%ebx \n" //Read Target
         " mfence \n"
+        //" rdtsc \n"
+        //" subl %%esi, %%eax \n"
         //" rdtsc \n"
         " clflush 0(%1) \n" //Flush target
         " mfence \n"
-        " movl (%1), %%edx \n" //Reload target
-        " mfence \n"
-        //" rdtsc \n"
-        " movl (%3), %%edx \n" //Read first element of the array
-        " mfence \n"
+        " movl (%1), %%ebx \n" //Reload target
+        " lfence \n"
         " rdtsc \n"
         " subl %%esi, %%eax \n"
+        " movl (%3), %%ebx \n" //Read first element of the array
+        " mfence \n"
+        //" rdtsc \n"
+        //" subl %%esi, %%eax \n"
         : "=a"(time)
-        : "c"(pos_data), "rr"(second_data), "ra"(first_el)
-        : "%esi", "%edx");
+        : "c"(pos_data), "rr"(conf_data), "ra"(first_el)
+        : "%esi", "%edx", "%ebx");
     return time;
 }
 
@@ -276,7 +282,8 @@ int refresh_step(long int *pos_data) //Load from second element
         " rdtsc \n"
         " movl %%eax, %%esi \n"
         " lfence \n"
-        " movq 16(%1), %%rdi \n"
+        " movq 0(%1), %%rdi \n"
+        " lfence \n"
         " movq (%%rdi), %%rdi \n"
         " movq (%%rdi), %%rdi \n"
         " movq (%%rdi), %%rdi \n"
@@ -286,7 +293,7 @@ int refresh_step(long int *pos_data) //Load from second element
         " movq (%%rdi), %%rdi \n"
         " movq (%%rdi), %%rdi \n"
         " movq (%%rdi), %%rdi \n"
-        " movq (%%rdi), %%rdi \n"
+        //" movq (%%rdi), %%rdi \n"
         " lfence \n"
         " rdtsc \n"
         " subl %%esi, %%eax \n"
@@ -299,9 +306,9 @@ int refresh_step(long int *pos_data) //Load from second element
         " mfence \n"
         " rdtsc \n"
         " movl %%eax, %%esi \n"
-        " movq 16(%1), %%rdi \n"
+        " lfence \n"
+        " movq 0(%1), %%rdi \n"
         " mfence \n"
-        " movq (%%rdi), %%rdi \n"
         " movq (%%rdi), %%rdi \n"
         " movq (%%rdi), %%rdi \n"
         " movq (%%rdi), %%rdi \n"
@@ -323,14 +330,15 @@ int refresh_step(long int *pos_data) //Load from second element
         : "c"(pos_data)
         : "%esi", "%edx", "%rdi");
 #else
-    unsigned long *end = (unsigned long *)pos_data;
-    unsigned long *begin = (unsigned long *)(pos_data + 2);
+    unsigned long *begin = (unsigned long *)(pos_data); //First read
+    int cont=2;
     unsigned long int t1 = timestamp();
     lfence();
     do
     {
         begin = (unsigned long *)(*begin);
-    } while (begin != (unsigned long *)end);
+        cont++;
+    } while (cont<CACHE_SET_SIZE);
     lfence();
     time = (int)(timestamp() - t1);
 #endif
@@ -430,7 +438,7 @@ int create_filtered_set(long int filtered_set[], long int original_set[], int le
             number_of_el_slice[slice_id]++;
             cont_candidates++;
         }
-	//printf("Cand %i %i %lx %lx\n",cont_candidates,slice_id,phys_addr,original_set[i]);
+        //printf("Cand %i %i %lx %lx\n",cont_candidates,slice_id,phys_addr,original_set[i]);
         if (cont_candidates == CACHE_SET_SIZE * CACHE_SLICES)
             break;
     }
@@ -710,7 +718,7 @@ void prepare_sets(long int eviction_set_rr[CACHE_SET_SIZE], long int *conflictin
     }
     lfence();
     /*Remove data from the cache*/
-    for (i = 1; i < CACHE_SET_SIZE; i++)
+    for (i = 0; i < CACHE_SET_SIZE; i++)
     {
         flush_data((long *)eviction_set_rr[i]);
         lfence();
@@ -720,7 +728,7 @@ void prepare_sets(long int eviction_set_rr[CACHE_SET_SIZE], long int *conflictin
     /*Place data in the cache again*/
     for (i = 0; i < CACHE_SET_SIZE; i++)
     {
-        lfence();
+        //lfence();
         mem_access((long int *)eviction_set_rr[i]);
         lfence();
     }

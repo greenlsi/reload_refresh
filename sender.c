@@ -105,7 +105,7 @@ int main()
     }
     else
     {
-      wait_time = (long int)((p) * sleep_time) / 1000;
+      wait_time = (long int)(((p) * sleep_time) / 1000);
     }
     snprintf(file_name, 40, "sender_%d_%ld.txt", target, sleep_time);
     printf("Saving results to %s %lu %lu\n", file_name, request.tv_sec, request.tv_nsec);
@@ -126,7 +126,7 @@ int main()
       }
       //collected_samples[0][i] = mem_access(target_address);
       collected_samples[0][i] = access_timed(target_address);
-      mem_access(target_address + 1);
+      //mem_access(target_address + 1);
       //access_timed(target_address+1);
       //access_timed(target_address+2);
       collected_samples[1][i] = timestamp();
