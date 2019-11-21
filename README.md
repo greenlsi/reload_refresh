@@ -100,7 +100,7 @@ This test evaluates a covert channel between sender and receiver (example code)
 * Atacker: example_code
   * Monitors the target address using the technique given as argument (-fr,-pp,-fpp,-rr) during a maximum time and outputs the results to a file. 
 * Filter: the results can be filtered using prepare_file.sh sender_file attacker_file. **Warning:** This script overwrittes the attacker_file, so save a copy if you run multiple tests using the same file.
-* Plot  `pyhton3 py_plot_sync.py sender_file attacker_file`
+* Plot  `pyhton3 py_plot_sync.py sender_file attacker_file TIME`, TIME selects the 'y' value for the victim accesses.
 
 #### Options
 
@@ -115,6 +115,22 @@ This test evaluates a covert channel between sender and receiver (example code)
 **NOTE** that the output of both senders can be used to callibrate the main memory access time, whereas the output of the attack  processes can be used to callibrate RELOAD+REFRESH or PRIME+PROBE. Similarly the number of samples of the sender with times over the main memory access threshold indicates aproximately the number of misses the victim sees.
 **NOTE** In RELOAD+REFRESH attacks "low" access times indicate the victim has used the data. 
 
+## Example figure output
+
+The following picture shows part of the results of a Reload+Refresh test for the synchronous test.
+* Reload data is in blue, lower times mean access.
+* Refresh data is in green, note refresh takes around 500 cycles, which in turn means no noise.
+* Sender data is in red, dots around 0 mean the victim did not access the victim address. Dots whose values are greater than 0 indicate access times. Note that times are around 100-110 cycles meaninig data was retrieved from the LLC.
+  
+![Reload+Refresh sync test](https://user-images.githubusercontent.com/8258801/69368091-b8e89000-0c99-11ea-8fda-0111811d61de.png)
+
+
+The following picture shows part of the results of a Flush+Reload test for the synchronous test.
+* Flush+Reload data is in blue, lower times mean access.
+* Green dots have no meaning in this tests
+* Sender data is in red, dots around 0 mean the victim did not access the victim address. Dots whose values are greater than 0 indicate access times. Note that access times are higher than 200-250 cycles which means data was retrieved from the main memory.
+
+![Test Flush Reload](https://user-images.githubusercontent.com/8258801/69369332-301f2380-0c9c-11ea-829c-eb8748b47e23.png)
 
 ## Tested systems
 
@@ -132,5 +148,3 @@ This code has been successfully tested on:
 	* Associativity: 16
 	* Cache sets: 8192
 	* Slices: 8
-  
-  ## Example figure output
