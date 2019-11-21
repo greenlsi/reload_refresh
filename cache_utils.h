@@ -1,7 +1,7 @@
 #include "common.h" /* virtual to physical page conversion */
 #include "cache_details.h" /*Cache architecture details*/
 
-#define SLICE_HASH_AVAILABLE 1
+#define SLICE_HASH_AVAILABLE 0
 #define SLICE_MASK_0 0x1b5f575440UL
 #define SLICE_MASK_1 0x2eb5faa880UL
 #define SLICE_MASK_2 0x3cccc93100UL

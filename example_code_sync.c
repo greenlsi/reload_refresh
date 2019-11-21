@@ -153,6 +153,7 @@ int main(int argc, char **argv)
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
+        printf("Saving results to %s\n", file_name);
         int t;
         unsigned long tim = timestamp();
         int cont = 0;
@@ -218,6 +219,7 @@ int main(int argc, char **argv)
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
+        printf("Saving results to %s\n", file_name);
 
         /*Set generation*/
         int tar_set = 30 + (rand() % (SETS_PER_SLICE / 2)); //Avoid set 0 (noisy);
@@ -280,6 +282,7 @@ int main(int argc, char **argv)
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
+        printf("Saving results to %s\n", file_name);
         /*Reserve huge pages*/
 
         fd = open(FILE_NAME, O_CREAT | O_RDWR, 0755);
@@ -362,6 +365,7 @@ int main(int argc, char **argv)
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
+        printf("Saving results to %s\n", file_name);
         /*Reserve huge pages*/
 
         fd = open(FILE_NAME, O_CREAT | O_RDWR, 0755);

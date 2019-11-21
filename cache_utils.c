@@ -331,14 +331,14 @@ int refresh_step(long int *pos_data) //Load from second element
         : "%esi", "%edx", "%rdi");
 #else
     unsigned long *begin = (unsigned long *)(pos_data); //First read
-    int cont=2;
+    int cont = 2;
     unsigned long int t1 = timestamp();
     lfence();
     do
     {
         begin = (unsigned long *)(*begin);
         cont++;
-    } while (cont<CACHE_SET_SIZE);
+    } while (cont < CACHE_SET_SIZE);
     lfence();
     time = (int)(timestamp() - t1);
 #endif
@@ -585,20 +585,7 @@ void generate_new_eviction_set(int set, long int invariant_part[CACHE_SET_SIZE *
     for (i = 0; i < CACHE_SET_SIZE * CACHE_SLICES; ++i)
     {
         long int dir_mem = invariant_part[i] + ((set << BITS_LINE) & MASC_SET_LINE);
-#if SLICE_HASH_AVAILABLE
-        int slice_id;
-        uintptr_t phys_addr;
-        int res = virt_to_phys(&phys_addr, getpid(), (uintptr_t)dir_mem);
-        if (res < 0)
-        {
-            printf("Error \n");
-            return;
-        }
-        slice_id = addr2slice_linear(phys_addr, CACHE_SLICES);
-        new_ev_set[slice_id * CACHE_SLICES + i % CACHE_SET_SIZE] = dir_mem;
-#else
         new_ev_set[i] = dir_mem;
-#endif
     }
 }
 
@@ -639,6 +626,8 @@ void write_linked_list(long int set_desired[CACHE_SET_SIZE * CACHE_SLICES])
 
 void profile_address(long int invariant_part[CACHE_SET_SIZE * CACHE_SLICES], long int new_ev_set[CACHE_SET_SIZE * CACHE_SLICES], long int *target_address, int *set, int *slice)
 {
+    int i, j, k;
+    int cache_model[SETS_PER_SLICE][CACHE_SLICES] = {0};
 #if SLICE_HASH_AVAILABLE
     uintptr_t phys_addr;
     int res = virt_to_phys(&phys_addr, getpid(), (uintptr_t)target_address);
@@ -647,11 +636,39 @@ void profile_address(long int invariant_part[CACHE_SET_SIZE * CACHE_SLICES], lon
         printf("Error \n");
         return;
     }
-    (*slice) = addr2slice_linear(phys_addr, CACHE_SLICES);
     *set = (int)((phys_addr >> BITS_LINE) & (MASC_BITS_SET));
+    /*Profiling is necessary to get the slice value, sometimes addr2slice_linear(phys_addr, CACHE_SLICES) and the output of the profile are not the same, probably I did something wrong*/
+    i = (*set);
+    generate_new_eviction_set(i, invariant_part, new_ev_set);
+    write_linked_list(new_ev_set);
+    for (j = 0; j < CACHE_SLICES; j++)
+    {
+        long int *prime_address = ((long int *)new_ev_set[j * CACHE_SET_SIZE]); //Get initial address of the eviction set
+        for (k = 0; k < 1000; k++)
+        {
+            int tprime = probe_one_set(prime_address);
+            lfence();
+            mem_access(target_address);
+            lfence();
+            int tprime1 = probe_one_set(prime_address);
+            cache_model[i][j] += (tprime1 - tprime) / 200;
+        }
+    }
+
+    int max = 0;
+    i = (*set);
+
+    for (j = 0; j < CACHE_SLICES; j++)
+    {
+        if (cache_model[i][j] > max)
+        {
+            max = cache_model[i][j];
+            *set = i;
+            *slice = j;
+        }
+    }
+
 #else
-    int i, j, k;
-    int cache_model[SETS_PER_SLICE][CACHE_SLICES] = {0};
     int initial_set = (int)((((long int)target_address) >> BITS_LINE) & MASC_KNOWN_SET_BITS);
     for (i = initial_set; i < SETS_PER_SLICE; i += NEXT_SET_NP)
     {
@@ -683,7 +700,7 @@ void profile_address(long int invariant_part[CACHE_SET_SIZE * CACHE_SLICES], lon
                 *slice = j;
             }
         }
-    }
+    } 
 #endif
 }
 

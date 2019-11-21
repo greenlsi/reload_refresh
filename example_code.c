@@ -28,8 +28,8 @@
 #define NUM_CANDIDATES 3 * CACHE_SET_SIZE *CACHE_SLICES
 #define RES_MEM (1UL * 1024 * 1024) * 4 * CACHE_SIZE
 
-#define CLEAN_NOISE 1
-#define WAIT_FIXED 1
+#define CLEAN_NOISE 1 /*For Reload+Refresh to detect noise and reset cache state*/
+#define WAIT_FIXED 1  /*Defines if it is possible to "wait" between samples*/
 
 int target_pos; //Should be the same in the sender
 long int *base_address;
@@ -58,7 +58,7 @@ int main(int argc, char **argv)
     //Just use first argument
     if (argc < 5)
     {
-        printf("Expected target address (int), attack name (-fr,-pp,-rr) wait cycles and max run time\n");
+        printf("Expected target address (int), attack name (-fr,-pp, -fpp,-rr) wait cycles and max run time\n");
         return -1;
     }
     else
@@ -82,6 +82,7 @@ int main(int argc, char **argv)
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
+        printf("Saving results to %s\n", file_name);
         int t;
         unsigned long tim = timestamp();
         int cont = 0;
@@ -150,15 +151,12 @@ int main(int argc, char **argv)
         }
 
         printf("Reserved hugepages at %lx \n", (long int)base_address);
-	uintptr_t phys_addr1;
-	int res = virt_to_phys(&phys_addr1, getpid(), (uintptr_t)target_address);
-	printf("%lx \n",phys_addr1);
         /*Output file*/
         snprintf(file_name, 40, "test_pp_%d_%d.txt", target_pos, wait_time);
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
-
+        printf("Saving results to %s\n", file_name);
         /*Set generation*/
         int tar_set = 30 + (rand() % (SETS_PER_SLICE / 2)); //Avoid set 0 (noisy);
         generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES, tar_set);
@@ -224,6 +222,7 @@ int main(int argc, char **argv)
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
+        printf("Saving results to %s\n", file_name);
         /*Reserve huge pages*/
 
         fd = open(FILE_NAME, O_CREAT | O_RDWR, 0755);
@@ -303,6 +302,7 @@ int main(int argc, char **argv)
         out_fd = fopen(file_name, "w");
         if (out_fd == NULL)
             fprintf(stderr, "Unable to open file\n");
+        printf("Saving results to %s\n", file_name);
         /*Reserve huge pages*/
 
         fd = open(FILE_NAME, O_CREAT | O_RDWR, 0755);
@@ -331,7 +331,7 @@ int main(int argc, char **argv)
         generate_candidates_array(base_address, candidates_set, NUM_CANDIDATES, tar_set);
         initialize_sets(eviction_set, filtered_set, NUM_CANDIDATES, candidates_set, NUM_CANDIDATES, TIME_LIMIT);
         store_invariant_part(eviction_set, invariant_part);
-        
+
         int t, t1;
         unsigned long tim = timestamp();
         int cont = 0;
@@ -383,7 +383,7 @@ int main(int argc, char **argv)
             cont++;
             t = reload_step(target_address, conflict_address, first_el);
             lfence();
-            t1 = refresh_step((long int*)elements_set[2]);
+            t1 = refresh_step((long int *)elements_set[2]);
             tim = timestamp();
 #if WAIT_FIXED
             while (timestamp() < tim + wait_time)
