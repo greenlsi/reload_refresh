@@ -6,6 +6,8 @@ This code was designed for Intel processors and Linux Systems.
 
 `Warning: this is a proof-of-concept, only useful for testing the performance of RELOAD+REFRESH and compare it with previous existing approaches. Use it under your own risk.`
 
+**Warning:** If in Prime+Probe or Reload+Refresh approaches it is not possible to distinguish between the "useful" data samples, there was a problem creating the sets and the results are not valid.  
+
 ## Requirements
 
 It requires Hugepages and assumes they are mounted on `/mnt/hugetlbfs/`. This value can be modified by changing the value of FILE_NAME.
