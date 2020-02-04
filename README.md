@@ -78,7 +78,7 @@ It is possible to test different approaches in two different scenarios, both inv
 * Victim: sender_sync
   * It receives requests through port 10000 and performs a timed access (depending on a value of the request) to the target memory address. It saves measured access times and timestamps in a file.
 * Attacker: example_code_sync
-  * It sends requests to port 10000 and performs the desired attack against the target address. Once the request has been received, it saves attack times and timestamps in a file.
+  * It sends requests to port 10000 and performs the desired attack against the target address. Once the request has been received, it saves measured access times and timestamps in a file.
 * Plot: the results can be depicted in a graph by calling `pyhton3  py_plot_sync.py sender_file attacker_file`
 
 #### Options
@@ -98,19 +98,19 @@ It is possible to test different approaches in two different scenarios, both inv
 This test evaluates a covert channel between sender and receiver (example code)
 
 * Victim: sender
-  * Performs one access to a target address and waits the nanoseconds given as argument before the next access, repeats this procedure for NUM_SAMPLES. Once it has finished asks for a new "waiting time". The value of NUM_SAMPLES is "defined" in the code. Saves results in a file (access times and timestamps). 
+  * Performs one access to a target address and waits the nanoseconds given as argument before the next access, repeats this procedure for NUM_SAMPLES (set to 50000 in code). Once it has finished, i saves results in a file (access times and timestamps). It starts again asking for a new "waiting time".
 * Attacker: example_code
-  * Monitors the target address using the technique given as argument (-fr,-pp,-fpp,-rr) during a maximum time and outputs the results to a file. 
+  * It monitors the target address using the technique given as argument (-fr,-pp,-fpp,-rr) during a maximum time and outputs the results to a file. 
 * Filter: the results can be filtered using prepare_file.sh sender_file attacker_file. **Warning:** This script overwrittes the attacker_file, so save a copy if you run multiple tests using the same file.
 * Plot  `pyhton3 py_plot_sync.py sender_file attacker_file TIME`, TIME selects the 'y' value for the victim accesses.
 
 #### Options
 
 * Victim: sender
-  * Once it is running, it asks for a target address (int), and then asks for the time (in ns) that it must wait between accesses to the target. It keeps running and asking for times as input
+  * Once it is running, it asks for a target address (int), and then asks for the time (in ns) that it must wait between accesses to the target. It keeps running and asking for new waiting times from standard input.
   * `$ ./sender`
 * Attacker: example_code
-  * Expects target address (int), attack name (-fr,-pp,-rr), wait cycles between samples and maximum run time in seconds. Although if the value of WAIT_FIXED is equal to 0 the value of wait cycles is not used, the program requires it.
+  * It expects 4 arguments, in order: a target address (int), an attack name (-fr,-pp,-rr), the cycles to wait between samples and the maximum run-time in seconds. Even if the value of WAIT_FIXED is equal to 0 (the value of wait cycles is not used), the program requires it to launch.
     * The attacks that can be tested include Flush+Reload (-fr), Prime+Probe (-pp), fast Prime+Probe (-fpp) as described in the Rowhammer.js paper and also requires the values of S,C and D and RELOAD+REFRESH (-rr)
   * `$ ./example_code 1352 -rr 12 15`
 
