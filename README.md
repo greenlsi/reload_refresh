@@ -11,8 +11,23 @@ This code was designed for Intel processors and Linux Systems.
 ## Requirements
 
 It requires Hugepages and assumes they are mounted on `/mnt/hugetlbfs/`. This value can be modified by changing the value of FILE_NAME.
-Once reserved, hugepages can be mounted: `$ sudo mount -t hugetlbfs none /mnt/hugetlbfs`
+The mount point must be created previously:
+
+`$ sudo mkdir /mnt/hugetlbfs`.
+
+Once reserved, hugepages can be mounted:
+
+`$ sudo mount -t hugetlbfs none /mnt/hugetlbfs`
+
 Note that this may require to use `sudo` for the examples or to change the permissions of the `/mnt/hugetlbfs/` folder.
+
+To enable a fixed amount of huge pages, after a reboot the number of huge pages must be set:
+
+`$ echo 1oo > /proc/sys/vm/nr_hugepages`
+
+To check that 100 huge pages are indeed available:
+
+`$ cat /proc/meminfo | grep HugePages`
 
 For ploting the results it requires **python3** and **matplotlib**
 
@@ -34,6 +49,24 @@ In order for the example to work properly, these values must be manually changed
 
 #define BITS_HUGEPAGE 21
 #define BITS_NORMALPAGE 12
+```
+
+In order to know the concrete values of a server:
+
+`$ cat /proc/cpuinfo`
+
+The values for the different constants are stored in the following variables:
+
+```
+CACHE_SIZE -> $ cat /proc/cpuinfo | grep "cache size" | head -n 1
+CPU_CORES  -> $ cat /proc/cpuinfo | grep "cpu cores" | head -n 1
+CACHE_SET_SIZE -> $ cpuid | grep -A 9 "cache 3" | grep "ways" | head -n 1
+CACHE_SLICES -> Intel 6th generation and above, CACHE_SIZE(KB)/1024. Intel 4th and 5th, CACHE_SIZE(KB)/2048
+SETS_PER_SLICE ->
+BITS_SET ->
+BITS_LINE ->
+BITS_HUGEPAGE ->
+BITS_NORMALPAGE ->
 ```
 
 #### Options and calibration
