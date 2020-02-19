@@ -61,12 +61,12 @@ The values for the different constants are stored in the following variables:
 CACHE_SIZE -> $ cat /proc/cpuinfo | grep "cache size" | head -n 1
 CPU_CORES  -> $ cat /proc/cpuinfo | grep "cpu cores" | head -n 1
 CACHE_SET_SIZE -> $ cpuid | grep -A 9 "cache 3" | grep "ways" | head -n 1
-CACHE_SLICES -> Intel 6th generation and above, CACHE_SIZE(KB)/1024. Intel 4th and 5th, CACHE_SIZE(KB)/2048
-SETS_PER_SLICE ->
-BITS_SET ->
-BITS_LINE ->
-BITS_HUGEPAGE ->
-BITS_NORMALPAGE ->
+CACHE_SLICES -> Usually Intel 6th generation and above, CACHE_SIZE(KB)/1024. Intel 4th and 5th, CACHE_SIZE(KB)/2048
+SETS_PER_SLICE -> Usually Intel 6th generation and above, 1024 and Intel 4th and 5th 2048
+BITS_SET -> log2(SETS_PER_SLICE), that is, 10 or 11
+
+BITS_HUGEPAGE -> 21 for systems whose hugepagesize is 2MB (check cat /proc/meminfo)
+BITS_NORMALPAGE -> 12 for 4KB pages
 ```
 
 #### Options and calibration
