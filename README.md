@@ -23,13 +23,22 @@ Note that this may require to use `sudo` for the examples or to change the permi
 
 To enable a fixed amount of huge pages, after a reboot the number of huge pages must be set:
 
-`$ echo 1oo > /proc/sys/vm/nr_hugepages`
+`$ echo 100 > /proc/sys/vm/nr_hugepages`
 
 To check that 100 huge pages are indeed available:
 
 `$ cat /proc/meminfo | grep HugePages`
 
 For ploting the results it requires **python3** and **matplotlib**
+
+## Compiling and running
+
+In order to use all the features of this code, it may be necessary to install make, gcc, python3, matplotlib. 
+For example in a machine with Ubuntu it is possible to install them:
+
+`$ apt-get install make gcc python3-pip` (May require sudo)
+
+`$ pip3 install matplotlib`
 
 ## Configuration
 
@@ -45,7 +54,7 @@ In order for the example to work properly, these values must be manually changed
 #define CACHE_SLICES 8
 #define SETS_PER_SLICE 1024
 #define BITS_SET 10 //log2(SETS_PER_SLICE)
-#define BITS_LINE 6 //64 bytes per cache line
+#define BITS_LINE 6 //64 bytes per cache line 
 
 #define BITS_HUGEPAGE 21
 #define BITS_NORMALPAGE 12
@@ -64,6 +73,7 @@ CACHE_SET_SIZE -> $ cpuid | grep -A 9 "cache 3" | grep "ways" | head -n 1
 CACHE_SLICES -> Usually Intel 6th generation and above, CACHE_SIZE(KB)/1024. Intel 4th and 5th, CACHE_SIZE(KB)/2048
 SETS_PER_SLICE -> Usually Intel 6th generation and above, 1024 and Intel 4th and 5th 2048
 BITS_SET -> log2(SETS_PER_SLICE), that is, 10 or 11
+BITS_LINE 6 //64 bytes per cache line, same value in all the systems tested, check with cat /proc/cpuinfo | grep "clflush size" | head -n 1
 
 BITS_HUGEPAGE -> 21 for systems whose hugepagesize is 2MB (check cat /proc/meminfo)
 BITS_NORMALPAGE -> 12 for 4KB pages
