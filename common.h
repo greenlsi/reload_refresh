@@ -6,6 +6,7 @@
 #include <stdio.h>   
 #include <stdbool.h>
 #include <signal.h>
+#include <unistd.h>
 
 #define PAGE_SIZE 4096
 #define MASC_PAGE (PAGE_SIZE - 1)
