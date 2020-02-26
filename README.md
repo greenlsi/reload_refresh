@@ -75,8 +75,8 @@ SETS_PER_SLICE -> Usually Intel 6th generation and above, 1024 and Intel 4th and
 BITS_SET -> log2(SETS_PER_SLICE), that is, 10 or 11
 BITS_LINE 6 //64 bytes per cache line, same value in all the systems tested, check with cat /proc/cpuinfo | grep "clflush size" | head -n 1
 
-BITS_HUGEPAGE -> 21 for systems whose hugepagesize is 2MB (check cat /proc/meminfo)
-BITS_NORMALPAGE -> 12 for 4KB pages
+BITS_HUGEPAGE -> log2(HUGEPAGESIZE), which can be checked using grep Hugepagesize /proc/meminfo. It is 21 for systems whose hugepagesize is 2MB
+BITS_NORMALPAGE -> log2(PAGESIZE), which can be checked using getconf PAGESIZE. It is 12 for 4KB pages
 ```
 
 #### Options and calibration
